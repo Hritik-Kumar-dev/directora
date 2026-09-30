@@ -239,6 +239,44 @@ Use `--strict` to fail instead of warn, which is what you want in a pipeline.
 
 ---
 
+## ◈ The agent skill
+
+The workflow above is packaged as a skill, so any agent can run it without
+being told how.
+
+```bash
+./skill/install.sh              # auto-detects opencode / claude
+./skill/install.sh opencode     # or target one
+./skill/install.sh --list       # show what's installed
+```
+
+Then just point your agent at a video:
+
+> *voice over ~/Videos/demo.mp4, and make sure it emphasises the batch export step*
+
+The skill encodes the lessons that took the most iterations to learn:
+
+- **Always open the keyframes.** The tool measures structure; the agent supplies
+  meaning. A skill that skips this produces generic filler.
+- **Always run `check` before rendering.** It is free and instant, and it tells
+  you exactly how many words to cut.
+- **Never write to the source video.** Always `-o`.
+- **Shots under ~2s cannot carry a line** — use explicit time windows instead.
+- **Write what the software does**, not what the frame looks like.
+- **Low-confidence transcription means film or music**, not narration to rewrite.
+
+Install path for a fresh machine:
+
+```bash
+git clone https://github.com/Hritik-Kumar-dev/directora.git
+cd directora && ./skill/install.sh
+```
+
+It installs to `~/.config/opencode/skills/directora` and
+`~/.claude/skills/directora`, and prints manual instructions if neither exists.
+
+---
+
 ## ◈ Configuration
 
 `~/.config/directora/config.toml`, or `directora config --set key=value`.
