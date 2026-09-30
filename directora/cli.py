@@ -150,14 +150,26 @@ def cmd_narrate(args) -> int:
     if not args.script and s.vision_backend != "claude" and not s.claude_key():
         print("error: nothing can write the narration for you.\n"
               "\n"
-              "  Pick one:\n"
-              "    --script FILE     supply an agent-written script (see "
-              "`directora template`)\n"
-              "    export ANTHROPIC_API_KEY=sk-ant-...   and "
-              "`directora config --set vision_backend=claude`\n"
+              "  This video has no existing narration to rewrite, and the offline\n"
+              "  backend measures structure but cannot read the screen, so it will\n"
+              "  not invent words for you.\n"
               "\n"
-              "  The offline backend measures structure but cannot read the "
-              "screen, so it will not invent narration for you.",
+              "  Option A - let an API write the script (one command):\n"
+              "\n"
+              "    1. create an API key at  https://console.anthropic.com/settings/keys\n"
+              "       (the API is pay-as-you-go and needs a card on file)\n"
+              "    2. export ANTHROPIC_API_KEY='sk-ant-...'\n"
+              "    3. directora config --set vision_backend=claude\n"
+              "    4. directora narrate FILE -o OUT.mp4\n"
+              "\n"
+              "  Option B - you write the script (no key, no cost):\n"
+              "\n"
+              "    directora template FILE -o script.json\n"
+              "    # fill in each line's \"text\", then:\n"
+              "    directora check   FILE --script script.json\n"
+              "    directora narrate FILE --script script.json -o OUT.mp4\n"
+              "\n"
+              "  Check what the tool can see at any time:  directora config",
               file=sys.stderr)
         return 2
 

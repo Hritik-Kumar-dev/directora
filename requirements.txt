@@ -7,8 +7,8 @@ av>=13,<17
 numpy>=1.26
 pillow>=10.0
 
-# optional: enables the `claude` vision backend (agent writes the script)
-# anthropic>=0.40
+# the `claude` vision backend, which is what lets an API write the narration
+anthropic>=0.40
 
 # dev
 # pytest>=8.0
