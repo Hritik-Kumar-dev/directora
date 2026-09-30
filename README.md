@@ -66,6 +66,27 @@ cd directora
 
 Nothing is installed system-wide. Python 3.10+.
 
+### Making `directora` available everywhere
+
+`./run.sh` works from inside the project directory. To call it from anywhere,
+put a launcher on your `PATH` — `~/.local/bin` is already on `PATH` in most
+setups:
+
+```bash
+mkdir -p ~/.local/bin
+cat > ~/.local/bin/directora <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+PROJECT="$HOME/work/projects/directora"
+[ -x "$PROJECT/run.sh" ] || { echo "directora: project missing at $PROJECT" >&2; exit 1; }
+exec "$PROJECT/run.sh" "$@"
+EOF
+chmod +x ~/.local/bin/directora
+```
+
+`run.sh` creates the virtualenv on first run and re-syncs dependencies whenever
+`requirements.txt` changes, so `git pull` followed by a normal run just works.
+
 ---
 
 ## ◈ Commands
