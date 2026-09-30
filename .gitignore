@@ -1,0 +1,30 @@
+# virtualenv / build
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# local config & artefacts
+config.toml
+*.srt
+out/
+*.log
+
+# editors / os
+.vscode/
+.idea/
+.DS_Store
+
+# never commit real media
+*.mp4
+*.mov
+*.mkv
+*.webm

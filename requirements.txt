@@ -1,0 +1,14 @@
+edge-tts>=7.0
+faster-whisper>=1.1
+# av>=19 dropped the metadata_errors kwarg that faster-whisper still passes,
+# which makes transcription fail with:
+#   TypeError: open() got an unexpected keyword argument 'metadata_errors'
+av>=13,<17
+numpy>=1.26
+pillow>=10.0
+
+# optional: enables the `claude` vision backend (agent writes the script)
+# anthropic>=0.40
+
+# dev
+# pytest>=8.0

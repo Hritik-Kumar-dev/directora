@@ -1,0 +1,33 @@
+[project]
+name = "directora"
+version = "0.2.0"
+description = "Add professional narration to screen recordings, driven by an agent."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "edge-tts>=7.0",
+    "faster-whisper>=1.1",
+    # av>=19 removed the metadata_errors kwarg that faster-whisper still passes
+    "av>=13,<17",
+    "numpy>=1.26",
+    "pillow>=10.0",
+]
+
+[project.optional-dependencies]
+claude = ["anthropic>=0.40"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+directora = "directora.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = [
+    "directora",
+    "directora.media",
+    "directora.nlp",
+    "directora.tts",
+]
