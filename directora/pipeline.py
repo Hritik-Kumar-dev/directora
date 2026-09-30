@@ -72,12 +72,14 @@ class Pipeline:
             session.speech_seconds = tr.get("speech_seconds", 0.0)
             session.detected_wpm = tr.get("wpm", 0.0)
             session.has_speech = tr.get("has_speech", False)
+            session.transcript_reliable = tr.get("reliable", True)
+            session.mean_logprob = tr.get("mean_logprob")
 
         analyzer = self._make_analyzer(progress)
         if analyzer.understands_pixels:
             session.shots = analyzer.analyze(
                 session.info, session.shots, session.transcript, progress)
-        elif session.has_speech:
+        elif session.has_speech and session.transcript_reliable:
             if progress:
                 progress("No vision model - preserving your spoken narration as text")
             script_gen.rewrite_from_transcript(
@@ -140,6 +142,7 @@ class Pipeline:
             duck_threshold=self.s.duck_threshold,
             duck_ratio=self.s.duck_ratio)
         session.output = out
+        made["overruns"] = mix.overruns(session.script.lines)
         return made
 
     # -- agent-facing stages ---------------------------------------------- #

@@ -29,6 +29,7 @@ class Settings:
 
     # --- speech ---
     whisper_model: str = "base"            # tiny | base | small | medium
+    language: str = ""                     # force "ne"/"hi"/"en"; "" = auto
     detect_speech: bool = True
 
     # --- script ---

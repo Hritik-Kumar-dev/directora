@@ -73,13 +73,14 @@ def transcribe(video: Path, s: Settings, work: Path,
     try:
         segments, info = model.transcribe(
             str(wav),
-            language=None,                 # auto-detect
+            language=s.language or None,     # None = auto-detect
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 400},
             beam_size=5,
             condition_on_previous_text=False,
         )
         segs = []
+        logprobs = []
         for seg in segments:
             text = (seg.text or "").strip()
             if not text:
@@ -87,6 +88,8 @@ def transcribe(video: Path, s: Settings, work: Path,
             segs.append({"start": round(float(seg.start), 3),
                          "end": round(float(seg.end), 3),
                          "text": text})
+            if getattr(seg, "avg_logprob", None) is not None:
+                logprobs.append(float(seg.avg_logprob))
     except Exception as exc:                                   # noqa: BLE001
         tick(f"Transcription failed: {exc}")
         return empty
@@ -99,14 +102,26 @@ def transcribe(video: Path, s: Settings, work: Path,
         tick("No speech detected")
         return empty
 
+    # A low mean logprob means the model was guessing. That usually means the
+    # audio is not narration at all -- film dialogue, music, background chatter
+    # -- so the transcript must not be used as a rewriting baseline.
+    mean_logprob = sum(logprobs) / len(logprobs) if logprobs else None
+    reliable = mean_logprob is None or mean_logprob > -0.70
+
     tick(f"Found {words} words over {speech:.1f}s of speech "
         f"({words / (speech / 60):.0f} wpm)")
+    if not reliable:
+        tick(f"low confidence (logprob {mean_logprob:.2f}) - likely film or "
+            f"music rather than narration; not using it as a baseline")
+
     return {
         "text": text,
         "segments": segs,
         "speech_seconds": round(speech, 3),
         "wpm": round(words / (speech / 60), 2),
         "has_speech": True,
+        "reliable": reliable,
+        "mean_logprob": None if mean_logprob is None else round(mean_logprob, 3),
         "language": getattr(info, "language", "") or "",
     }
 

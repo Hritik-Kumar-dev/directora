@@ -120,6 +120,15 @@ def mux(video: Path, voice: Path, out: Path, *,
     return out
 
 
+def overruns(lines: list[Line], tolerance: float = 0.05) -> list[Line]:
+    """Lines whose rendered audio is longer than its slot.
+
+    Word-count estimates can be optimistic -- this is the ground truth, taken
+    from the audio that was actually synthesised.
+    """
+    return [l for l in lines if l.clip and l.clip_dur > l.duration + tolerance]
+
+
 def srt_timestamp(t: float, sep: str = ",") -> str:
     h = int(t // 3600)
     m = int((t % 3600) // 60)

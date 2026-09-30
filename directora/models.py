@@ -158,6 +158,8 @@ class Session:
     speech_seconds: float = 0.0
     detected_wpm: float = 0.0
     has_speech: bool = False
+    transcript_reliable: bool = True
+    mean_logprob: float | None = None
     script: Script = field(default_factory=Script)
     output: Path | None = None
     created: float = field(default_factory=time.time)

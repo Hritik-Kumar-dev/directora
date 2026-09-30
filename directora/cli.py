@@ -52,7 +52,8 @@ def _settings(args) -> Settings:
                         ("voice", getattr(args, "voice", None)),
                         ("rate", getattr(args, "rate", None)),
                         ("pitch", getattr(args, "pitch", None)),
-                        ("whisper_model", getattr(args, "whisper", None))):
+                        ("whisper_model", getattr(args, "whisper", None)),
+                        ("language", getattr(args, "language", None))):
         if value:
             setattr(s, attr, value)
     if getattr(args, "wpm", None):
@@ -193,11 +194,27 @@ def cmd_narrate(args) -> int:
     else:
         session = pipe.narrate(video, out, tick)
 
+    if session.has_speech and not session.transcript_reliable:
+        print("  note: the source audio did not transcribe confidently "
+              f"(logprob {session.mean_logprob}), so it was treated as media "
+              "playback rather than narration to rewrite.",
+              file=sys.stderr)
+
     srt = out.with_suffix(".srt") if out else None
     if out is None and session.output:
         srt = session.output.with_suffix(".srt")
     _save(session)
     _summary(session, s, session.output, srt if not args.no_srt else None)
+
+    from .media.mix import overruns
+    over = overruns(session.script.lines)
+    if over:
+        print(f"  {len(over)} line(s) overrun their slot:")
+        for l in over:
+            print(f"    line {l.index + 1}: {l.clip_dur:.2f}s of audio in a "
+                  f"{l.duration:.2f}s slot — shorten it by about "
+                  f"{int((l.clip_dur - l.duration) / 60 * s.target_wpm) + 1} word(s)")
+        print()
     return 0
 
 
@@ -393,6 +410,9 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--fill", type=float,
                         help="share of the video the voice fills, e.g. 0.8")
     common.add_argument("--whisper", help="tiny|base|small|medium")
+    common.add_argument("--language", metavar="CODE",
+                        help="force the speech language, e.g. ne, hi, en "
+                             "(default: auto-detect)")
 
     sub = p.add_subparsers(dest="cmd", required=True)
 
