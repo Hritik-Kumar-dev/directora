@@ -45,11 +45,11 @@ def _edge():
 
 
 def _run(coro):
-    """Run a coroutine from anywhere -- including inside a running loop.
+    """Run a coroutine from anywhere.
 
-    The TUI calls these helpers while Textual's event loop is already running,
-    where a bare ``asyncio.run`` raises. In that case we hop onto a worker
-    thread that owns a loop of its own.
+    Callers may already be inside an event loop (for example an async test
+    harness or a notebook), where a bare ``asyncio.run`` raises. In that case
+    we hop onto a worker thread that owns a loop of its own.
     """
     try:
         asyncio.get_running_loop()
