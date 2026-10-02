@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Callable, Iterable
 
 from ..models import Line
 
 Progress = Callable[[str], None]
+
+# bump when edge-tts output would differ for identical inputs, to invalidate
+# every previously cached clip
+ENGINE_VERSION = "1"
 
 
 class TTSError(RuntimeError):
@@ -136,12 +141,70 @@ def speak(text: str, voice: str, rate: str, pitch: str, out: Path) -> float:
     return round(_duration_of(out), 3)
 
 
+# --------------------------------------------------------------------------- #
+# caching
+# --------------------------------------------------------------------------- #
+def fingerprint(text: str, voice: str, rate: str, pitch: str) -> str:
+    """A stable id for one (text, voice, rate, pitch) combination.
+
+    Editing a line's wording changes its fingerprint, so only genuinely
+    unchanged lines are reused. ``engine_version`` is a manual lever: bump it
+    if edge-tts output ever changes for identical inputs.
+    """
+    import hashlib
+
+    payload = "\x00".join([
+        ENGINE_VERSION, _SSML_STRIP.sub("", text).strip(), voice, rate, pitch,
+    ])
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def cached_speak(text: str, voice: str, rate: str, pitch: str, out: Path,
+                 progress: Progress | None = None) -> tuple[Path, float, bool]:
+    """Synthesise into a content-addressed cache.
+
+    Returns ``(path, duration, reused)``. Reused clips skip the network call
+    entirely, which is what makes re-running an edited script fast: only the
+    lines that actually changed are re-synthesised.
+    """
+    clean = _SSML_STRIP.sub("", text).strip()
+    if not clean:
+        raise TTSError("Nothing to synthesise (empty line)")
+
+    digest = fingerprint(clean, voice, rate, pitch)
+    path = out.parent / f"{digest}.mp3"
+    meta = out.parent / f"{digest}.json"
+
+    if path.exists() and meta.exists():
+        try:
+            data = json.loads(meta.read_text(encoding="utf-8"))
+            if path.stat().st_size > 0:
+                return path, float(data["duration"]), True
+        except (OSError, ValueError, KeyError):
+            pass  # corrupt cache entry; fall through and re-synthesise
+
+    if progress:
+        progress(f"  cached: {digest}")
+    dur = speak(clean, voice, rate, pitch, path)
+    try:
+        meta.write_text(json.dumps(
+            {"text": clean, "voice": voice, "rate": rate, "pitch": pitch,
+             "duration": dur, "engine": ENGINE_VERSION}), encoding="utf-8")
+    except OSError:
+        pass
+    return path, dur, False
+
+
 def render_script(lines: Iterable[Line], outdir: Path, voice: str, rate: str,
-                  pitch: str, progress: Progress | None = None) -> int:
+                  pitch: str, progress: Progress | None = None,
+                  cache: bool = True) -> int:
     """Render every non-empty line of a script. Returns how many succeeded.
 
     Failures are reported rather than swallowed -- a silent zero here used to
     look like a successful run right up until the mux stage failed.
+
+    With ``cache`` enabled (the default) clips are content-addressed, so
+    re-running after a small edit only re-synthesises the lines that changed.
     """
     outdir.mkdir(parents=True, exist_ok=True)
     todo = [l for l in lines if l.text.strip()]
@@ -150,40 +213,61 @@ def render_script(lines: Iterable[Line], outdir: Path, voice: str, rate: str,
         progress(f"{skipped} blank line(s) skipped — fill them in first")
 
     ok = 0
+    reused = 0
     failures: list[str] = []
     for i, line in enumerate(todo, 1):
-        if progress:
-            progress(f"Synthesising {i}/{len(todo)}: {line.text[:48]}...")
-        path = outdir / f"line{line.index:03d}.mp3"
+        if not cache:
+            if progress:
+                progress(f"Synthesising {i}/{len(todo)}: {line.text[:48]}...")
+            try:
+                dur = speak(line.text, voice, rate, pitch,
+                            outdir / f"line{line.index:03d}.mp3")
+            except TTSError as exc:
+                failures.append(f"line {line.index + 1}: {exc}")
+                if progress:
+                    progress(f"failed: {exc}")
+                continue
+            line.clip = outdir / f"line{line.index:03d}.mp3"
+            line.clip_dur = dur
+            line.voice = voice
+            ok += 1
+            continue
+
         try:
-            dur = speak(line.text, voice, rate, pitch, path)
+            path, dur, was_reused = cached_speak(
+                line.text, voice, rate, pitch, outdir / "clip.mp3", progress)
         except TTSError as exc:
             failures.append(f"line {line.index + 1}: {exc}")
             if progress:
-                progress(f"[red]failed:[/red] {exc}")
+                progress(f"failed: {exc}")
             continue
         line.clip = path
         line.clip_dur = dur
         line.voice = voice
         ok += 1
+        reused += 1 if was_reused else 0
+        if not was_reused and progress:
+            progress(f"Synthesised {i}/{len(todo)}: {line.text[:48]}...")
 
     if not todo:
         raise TTSError("Every line is blank — write the narration first.")
     if ok == 0:
         detail = failures[0] if failures else "unknown error"
         raise TTSError(f"All {len(todo)} line(s) failed to synthesise ({detail})")
+    if progress and reused:
+        progress(f"reused {reused} of {ok} cached clip(s)")
     if failures and progress:
-        progress(f"[yellow]{len(failures)} line(s) failed; {ok} rendered[/yellow]")
+        progress(f"{len(failures)} line(s) failed; {ok} rendered")
     return ok
 
 
 def render_one(line: Line, outdir: Path, voice: str, rate: str, pitch: str) -> float:
-    """Render a single line (used by the TUI's preview button)."""
+    """Render a single line for preview."""
     outdir.mkdir(parents=True, exist_ok=True)
-    path = outdir / f"line{line.index:03d}.mp3"
-    dur = speak(line.text, voice, rate, pitch, path)
+    path, dur, _ = cached_speak(line.text, voice, rate, pitch,
+                                outdir / "clip.mp3")
     line.clip = path
-    line.clip_dur = round(dur, 3)
+    line.clip_dur = dur
     line.voice = voice
     return dur
 

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
-from .config import Settings, WORK_DIR, ensure_dirs
-from .media import mix, probe, shots as shots_mod
+from .config import WORK_DIR, Settings, ensure_dirs
+from .media import mix, probe
+from .media import shots as shots_mod
 from .models import Script, Session
 from .nlp import asr, script_gen, vision
 from .tts import engine as tts
@@ -112,19 +113,24 @@ class Pipeline:
 
     # -- stage 4 ---------------------------------------------------------- #
     def generate_voice(self, session: Session, voice: str | None = None,
-                       progress: Progress | None = None) -> int:
+                       progress: Progress | None = None,
+                       cache: bool = True) -> int:
         work = self.workdir(session) / "tts"
         voice = voice or self.s.voice
         return tts.render_script(session.script.lines, work, voice,
-                                 self.s.rate, self.s.pitch, progress)
+                                 self.s.rate, self.s.pitch, progress,
+                                 cache=cache)
 
-    def preview_line(self, session: Session, index: int) -> Path | None:
+    def preview_line(self, session: Session, index: int,
+                     voice: str | None = None) -> tuple[Path, float] | None:
+        """Speak one line on its own, for hearing a choice before committing."""
         work = self.workdir(session) / "tts"
         line = next((l for l in session.script.lines if l.index == index), None)
-        if line is None:
+        if line is None or not line.text.strip():
             return None
-        tts.render_one(line, work, self.s.voice, self.s.rate, self.s.pitch)
-        return line.clip
+        dur = tts.render_one(line, work, voice or self.s.voice,
+                             self.s.rate, self.s.pitch)
+        return line.clip, dur
 
     # -- stage 5 ---------------------------------------------------------- #
     def render(self, session: Session, out: Path | None = None,
@@ -187,7 +193,8 @@ class Pipeline:
 
     def narrate(self, video: Path, out: Path | None = None,
                 progress: Progress | None = None,
-                script_path: Path | None = None) -> Session:
+                script_path: Path | None = None,
+                cache: bool = True) -> Session:
         """The full agentic run.
 
         With ``script_path`` the agent supplies the words. Without it the
@@ -207,7 +214,7 @@ class Pipeline:
                         "--script with an agent-written narration.")
             self.write_script(session, progress)
 
-        self.generate_voice(session, progress=progress)
+        self.generate_voice(session, progress=progress, cache=cache)
         self.render(session, out, progress)
         return session
 
@@ -218,13 +225,3 @@ class Pipeline:
             shutil.rmtree(d, ignore_errors=True)
         d.mkdir(parents=True, exist_ok=True)
         return d
-
-    # -- all -------------------------------------------------------------- #
-    def run_all(self, video: Path, out: Path | None = None,
-                progress: Progress | None = None) -> Session:
-        session = self.probe_video(video, progress)
-        session = self.analyse(session, progress)
-        self.write_script(session, progress)
-        self.generate_voice(session, progress=progress)
-        self.render(session, out, progress)
-        return session
