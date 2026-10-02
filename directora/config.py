@@ -6,7 +6,10 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # py3.10
+    tomllib = None
 
 APP_NAME = "directora"
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / APP_NAME
@@ -60,7 +63,7 @@ class Settings:
         s = cls()
         if CONFIG_FILE.exists():
             try:
-                data = tomllib.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+                data = load_toml(CONFIG_FILE.read_text(encoding="utf-8"))
             except Exception:
                 return s
             for k, v in data.items():
@@ -109,7 +112,7 @@ class Settings:
                 return v.strip()
         if CONFIG_FILE.exists():
             try:
-                data = tomllib.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+                data = load_toml(CONFIG_FILE.read_text(encoding="utf-8"))
                 v = data.get("anthropic_api_key")
                 if v:
                     return str(v).strip()
@@ -138,6 +141,34 @@ def json_dump(v: object) -> str:
         import json
         return json.dumps(v)
     return str(v)
+
+
+def load_toml(text: str) -> dict:
+    if tomllib is not None:
+        return tomllib.loads(text)
+    try:
+        import tomli
+
+        return tomli.loads(text)
+    except ModuleNotFoundError:
+        out = {}
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k = k.strip()
+            v = v.strip()
+            if v in ("true", "false"):
+                out[k] = (v == "true")
+                continue
+            try:
+                import json
+
+                out[k] = json.loads(v)
+            except Exception:
+                out[k] = v.strip('"')
+        return out
 
 
 def ensure_dirs() -> None:

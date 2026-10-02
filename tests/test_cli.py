@@ -233,6 +233,30 @@ def test_config_env_override(monkeypatch):
     assert s.keep_original_audio is False
 
 
+def test_toml_fallback_without_tomllib_or_tomli(monkeypatch):
+    import builtins
+
+    from directora import config
+
+    monkeypatch.setattr(config, "tomllib", None)
+    original_import = builtins.__import__
+
+    def _import(name, *args, **kwargs):
+        if name == "tomli":
+            raise ModuleNotFoundError(name)
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _import)
+    data = config.load_toml("""
+target_wpm = 120
+keep_original_audio = false
+voice = "en-GB-RyanNeural"
+""")
+    assert data["target_wpm"] == 120
+    assert data["keep_original_audio"] is False
+    assert data["voice"] == "en-GB-RyanNeural"
+
+
 def test_cli_rejects_narrate_without_a_script_source(monkeypatch, tmp_path):
     """The offline backend must not be allowed to invent narration."""
     from directora.cli import main
