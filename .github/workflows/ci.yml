@@ -87,6 +87,76 @@ jobs:
       - name: Import every module
         run: python -c "import directora.cli, directora.pipeline, directora.tts.engine, directora.nlp.vision, directora.nlp.asr"
 
+  installer:
+    name: one-line installer
+    runs-on: ubuntu-latest
+    # the curl one-liner is the front door, so a silent break here costs every
+    # new user. Install into a throwaway HOME and actually run the CLI.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Syntax
+        run: bash -n install.sh
+
+      - name: --help exits 0
+        run: |
+          bash install.sh --help
+          # a non-zero here means the EXIT trap is clobbering the status
+          bash install.sh --help >/dev/null
+
+      - name: Rejects unknown flags
+        run: |
+          if bash install.sh --definitely-not-a-flag >/dev/null 2>&1; then
+            echo "should have exited non-zero"; exit 1
+          fi
+
+      - name: Installs into a clean HOME and runs
+        run: |
+          export FAKEHOME="$RUNNER_TEMP/home"
+          mkdir -p "$FAKEHOME/.claude" "$FAKEHOME/.config/opencode"
+          HOME="$FAKEHOME" bash install.sh --from "$GITHUB_WORKSPACE"
+          "$FAKEHOME/.local/bin/directora" config
+          test -f "$FAKEHOME/.claude/skills/directora/SKILL.md"
+          test -f "$FAKEHOME/.config/opencode/skills/directora/SKILL.md"
+
+      - name: Renders a video through the installed CLI
+        run: |
+          export FAKEHOME="$RUNNER_TEMP/home"
+          WORK="$RUNNER_TEMP/work"
+          mkdir -p "$WORK"
+          ffmpeg -v error -y -f lavfi -i "testsrc=size=320x180:rate=15:duration=4" \
+            -f lavfi -i "sine=frequency=300:duration=4" \
+            -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "$WORK/demo.mp4"
+          printf '{"lines":[{"start":0.4,"end":3.5,"text":"The crop editor opens here."}]}\n' > "$WORK/script.json"
+          cd "$WORK"
+          HOME="$FAKEHOME" "$FAKEHOME/.local/bin/directora" narrate demo.mp4 \
+            --script script.json -o out.mp4 -q
+          test -s out.mp4
+          test -s out.srt
+          # the video stream must be untouched by the core install too
+          src=$(ffmpeg -v error -i demo.mp4 -map 0:v -c copy -f md5 -)
+          dst=$(ffmpeg -v error -i out.mp4   -map 0:v -c copy -f md5 -)
+          [ "$src" = "$dst" ] || { echo "stream copy broken"; exit 1; }
+          echo "stream copy verified"
+
+      - name: Uninstall leaves nothing behind
+        run: |
+          export FAKEHOME="$RUNNER_TEMP/home"
+          HOME="$FAKEHOME" bash install.sh --uninstall
+          test ! -e "$FAKEHOME/.local/bin/directora"
+          test ! -e "$FAKEHOME/.claude/skills/directora"
+          test ! -e "$FAKEHOME/.local/share/directora"
+
   skill:
     name: skill manifest is valid
     runs-on: ubuntu-latest
