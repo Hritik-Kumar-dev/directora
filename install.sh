@@ -165,14 +165,24 @@ if [ -n "$LOCAL_SRC" ]; then
   EXTRACT="$(cd "$LOCAL_SRC" && pwd)"
   ok "using local source at $EXTRACT"
 elif [ -z "$REF" ]; then
+  # a published release is the best answer: it is a deliberate, stable ref
   REF="$(curl -fsSL --max-time 20 "$API/releases/latest" 2>/dev/null \
         | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
         | head -1 || true)"
   if [ -n "$REF" ]; then
     ok "latest release: $REF"
   else
-    REF="main"
-    warn "no published release found; installing from main"
+    # fall back to the newest version tag, so a tagged tree still installs
+    # pinned rather than tracking whatever is on main
+    REF="$(curl -fsSL --max-time 20 "$API/tags?per_page=100" 2>/dev/null \
+          | sed -n 's/^[[:space:]]*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+          | grep -E '^v?[0-9]+\.[0-9]+' | sort -V | tail -1 || true)"
+    if [ -n "$REF" ]; then
+      ok "latest tag: $REF"
+    else
+      REF="main"
+      warn "no release or tag found; installing from main (not pinned)"
+    fi
   fi
 else
   ok "pinned to: $REF"
