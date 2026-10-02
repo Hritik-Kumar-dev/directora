@@ -1,0 +1,110 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 is the floor declared in pyproject; 3.13 is what we develop on
+        python-version: ["3.10", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ffmpeg
+        # the mix tests render a real clip and compare video-stream MD5s, so
+        # they need the real thing rather than skipping
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install (test deps only)
+        # numpy and pillow are imported at module load; edge-tts,
+        # faster-whisper and anthropic are all imported lazily, and none of
+        # these tests need them.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . --no-deps
+          python -m pip install numpy pillow pytest
+
+      - name: Run tests
+        run: python -m pytest tests/ -v --tb=short
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install ruff
+        run: python -m pip install ruff
+
+      - name: ruff check
+        run: ruff check .
+
+  deps:
+    name: full dependency resolve
+    runs-on: ubuntu-latest
+    # keeps the pinned ranges honest -- catches the day av>=19 or an
+    # edge-tts release breaks the install
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install runtime + dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -e .
+          python -m pip install pytest
+
+      - name: Import every module
+        run: python -c "import directora.cli, directora.pipeline, directora.tts.engine, directora.nlp.vision, directora.nlp.asr"
+
+  skill:
+    name: skill manifest is valid
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check SKILL.md front matter
+        run: |
+          python - <<'PY'
+          import pathlib, sys
+          p = pathlib.Path("skill/directora/SKILL.md")
+          text = p.read_text(encoding="utf-8")
+          if not text.startswith("---"):
+              sys.exit("SKILL.md must start with YAML front matter")
+          if "name:" not in text.split("---")[1]:
+              sys.exit("SKILL.md front matter needs a name:")
+          print("ok")
+          PY
+
+      - name: installer runs
+        run: bash -n skill/install.sh && echo "install.sh parses"

@@ -31,3 +31,18 @@ packages = [
     "directora.nlp",
     "directora.tts",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+    # a narration line is a `Line`; `l` reads naturally in comprehensions and
+    # the codebase uses it consistently
+    "E741",
+    # zip() over pairs by one index apart is an adjacency walk, so the lengths
+    # are meant to differ
+    "B905",
+]
