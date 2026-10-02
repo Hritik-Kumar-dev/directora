@@ -4,18 +4,30 @@ version = "0.2.0"
 description = "Add professional narration to screen recordings, driven by an agent."
 readme = "README.md"
 requires-python = ">=3.10"
+
+# The core is deliberately small. Shots, keyframes and the visual stats all
+# need numpy/pillow; narration needs edge-tts. Everything heavier is an extra,
+# because a curl one-liner should not silently pull hundreds of megabytes.
 dependencies = [
     "edge-tts>=7.0",
-    "faster-whisper>=1.1",
-    # av>=19 removed the metadata_errors kwarg that faster-whisper still passes
-    "av>=13,<17",
     "numpy>=1.26",
     "pillow>=10.0",
 ]
 
 [project.optional-dependencies]
+# Transcribing narration that is already in the recording. Without it,
+# existing speech is simply ignored and the run continues.
+asr = [
+    "faster-whisper>=1.1",
+    # av>=19 dropped the metadata_errors kwarg that faster-whisper still passes,
+    # which makes transcription fail with:
+    #   TypeError: open() got an unexpected keyword argument 'metadata_errors'
+    "av>=13,<17",
+]
+# Letting an API write the narration from the keyframes instead of an agent.
 claude = ["anthropic>=0.40"]
 dev = ["pytest>=8.0"]
+all = ["directora[asr,claude]"]
 
 [project.scripts]
 directora = "directora.cli:main"

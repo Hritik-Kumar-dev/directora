@@ -1,14 +1,12 @@
-edge-tts>=7.0
-faster-whisper>=1.1
-# av>=19 dropped the metadata_errors kwarg that faster-whisper still passes,
-# which makes transcription fail with:
-#   TypeError: open() got an unexpected keyword argument 'metadata_errors'
-av>=13,<17
-numpy>=1.26
-pillow>=10.0
-
-# the `claude` vision backend, which is what lets an API write the narration
-anthropic>=0.40
+# The full developer/runtime set. The core install (what the curl one-liner
+# does) pulls only the packages in [project.dependencies]; `asr` and `claude`
+# are opt-in extras so a first-time install stays small and fast.
+#
+#   pip install -e .            # core: shots, keyframes, narration
+#   pip install -e .[asr]       # + transcribe narration already in the video
+#   pip install -e .[claude]    # + let an API write the narration
+#
+-e .[asr,claude]
 
 # dev
-# pytest>=8.0
+pytest>=8.0
