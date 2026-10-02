@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -179,7 +179,7 @@ class Session:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "Session":
+    def from_dict(cls, d: dict[str, Any]) -> Session:
         d = dict(d)
         d["video"] = Path(d["video"])
 
@@ -226,5 +226,5 @@ class Session:
         path.write_text(json.dumps(self.to_dict(), indent=1), encoding="utf-8")
 
     @classmethod
-    def load(cls, path: Path) -> "Session":
+    def load(cls, path: Path) -> Session:
         return cls.from_dict(json.loads(path.read_text(encoding="utf-8")))
