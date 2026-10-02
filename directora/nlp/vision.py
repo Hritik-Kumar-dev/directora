@@ -15,7 +15,7 @@ from __future__ import annotations
 import base64
 import json
 import re
-from typing import Callable
+from collections.abc import Callable
 
 from ..config import Settings
 from ..models import MediaInfo, Shot
@@ -139,10 +139,30 @@ class ClaudeAnalyzer:
     # preference order when auto-resolving a model for the key we were given
     PREFERRED = ("sonnet", "opus", "haiku")
 
+    # an undated id like "claude-sonnet-4-5" is a moving alias that tracks the
+    # latest release; a dated id is pinned to one snapshot.
+    _DATED = re.compile(r"-(\d{8})$")
+
     def __init__(self, settings: Settings):
         self.s = settings
         self._key = settings.require_claude()
         self.model = settings.claude_model
+
+    @classmethod
+    def _best(cls, candidates: list[str]) -> str:
+        """Newest-looking id wins.
+
+        Sorting these as plain strings is wrong -- "claude-3-5-sonnet-20241022"
+        sorts *before* "claude-sonnet-4-5" because '3' < 's'. Prefer an
+        undated alias, then the highest release date.
+        """
+        def key(mid: str) -> tuple[int, int, str]:
+            m = cls._DATED.search(mid)
+            # ascending sort, and we take the last: dated ids rank by release
+            # date, undated aliases rank above all of them
+            return (0, int(m.group(1)), mid) if m else (1, 0, mid)
+
+        return sorted(candidates, key=key)[-1] if candidates else ""
 
     # -- model resolution -------------------------------------------------- #
     def _resolve_model(self, client) -> str:
@@ -173,17 +193,18 @@ class ClaudeAnalyzer:
             )
 
         for want in self.PREFERRED:
-            hits = sorted(m for m in available if want in m.lower())
+            hits = [m for m in available if want in m.lower()]
             if hits:
-                return hits[-1]
-        return sorted(available)[-1]
+                return self._best(hits)
+        return self._best(available)
 
     # -- payload ---------------------------------------------------------- #
     @staticmethod
     def _b64(path) -> str:
         return base64.standard_b64encode(path.read_bytes()).decode()
 
-    def _payload(self, shots: list[Shot], transcript: str) -> list[dict]:
+    def _payload(self, info: MediaInfo, shots: list[Shot],
+                 transcript: str) -> list[dict]:
         content: list[dict] = []
         notable = [s for s in shots if s.duration >= self.s.min_shot_seconds]
         # keep the budget: evenly thin the shot list if there are too many
@@ -191,11 +212,13 @@ class ClaudeAnalyzer:
             step = len(notable) / self.s.max_frames
             notable = [notable[int(i * step)] for i in range(self.s.max_frames)]
 
+        orientation = "portrait" if info.portrait else "landscape"
         content.append({
             "type": "text",
             "text": (
                 "Video analysis request.\n"
-                f"Resolution: {notable[0].index if notable else '?'}\n"
+                f"Resolution: {info.resolution} ({orientation})\n"
+                f"Frame rate: {info.fps:.2f} fps\n"
                 f"Total duration: {sum(s.duration for s in shots):.1f}s across "
                 f"{len(shots)} shots.\n"
                 + (f"Existing spoken narration: {transcript[:4000]}\n"
@@ -244,7 +267,7 @@ class ClaudeAnalyzer:
 
         client = anthropic.Anthropic(api_key=self._key)
         model = self._resolve_model(client)
-        content = self._payload(shots, transcript)
+        content = self._payload(info, shots, transcript)
 
         if progress:
             progress(f"Contacting {model} with "
@@ -316,10 +339,3 @@ def get_analyzer(settings: Settings):
     if settings.vision_backend == "claude":
         return ClaudeAnalyzer(settings)
     return HeuristicAnalyzer(settings)
-
-
-def describe_capabilities() -> str:
-    return (
-        "heuristic : offline structural descriptions from motion / density / tone\n"
-        "claude    : true frame understanding (needs ANTHROPIC_API_KEY)"
-    )
