@@ -289,7 +289,9 @@ def _extract_keyframes(info: MediaInfo, shots: list[Shot], s: Settings,
         "-vf", f"select='{expr}',scale={s.frame_width}:-2:flags=lanczos",
         "-vsync", "0", "-q:v", "4", "-f", "image2", str(kdir / "k%04d.jpg"),
     ]
-    p = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+    # a failure here just means fewer keyframes, which the length check below
+    # already handles
+    subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
     produced = sorted(kdir.glob("*.jpg"))
 
     if len(produced) == len(wanted):

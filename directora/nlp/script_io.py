@@ -43,7 +43,6 @@ class ScriptError(ValueError):
 # --------------------------------------------------------------------------- #
 def template(session: Session, s: Settings) -> dict[str, Any]:
     """A skeleton an agent can fill in, with per-shot hints kept as notes."""
-    shots = {sh.index: sh for sh in session.shots}
     slots = plan_slots(session.shots, s)
     lines = []
     for sh, start, end in slots:

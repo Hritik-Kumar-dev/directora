@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
-import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from ..config import Settings
 
