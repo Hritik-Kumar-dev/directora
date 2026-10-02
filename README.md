@@ -97,12 +97,75 @@ chmod +x ~/.local/bin/directora
 | `template VIDEO` | emit a fill-in-the-blanks script skeleton |
 | `check VIDEO --script F` | validate timing, render nothing; `--strict` exits non-zero |
 | `narrate VIDEO` | the whole job: analyse → script → speak → mux |
+| `preview VIDEO N` | speak **one** line and report its real length |
+| `batch DIR` | narrate every video in a folder |
 | `voices` | list narration voices (`--locale en-IN`, `hi`, …) |
 | `scan DIR` | list videos in a folder |
 | `config` | show or change settings (`--set key=value`) |
 
 Shared flags: `--backend`, `--voice`, `--rate`, `--pitch`, `--wpm`, `--fill`,
-`--whisper`, `-q`.
+`--whisper`, `--language`, `-q`.
+
+---
+
+## ◈ Iterating without re-paying
+
+Narration is the expensive part of a run, so clips are **content-addressed**:
+each one is keyed by a hash of its text, voice, rate and pitch. Re-running after
+a small edit re-synthesises only the lines that actually changed.
+
+```
+$ directora narrate demo.mp4 --script script.json -o out.mp4
+  ·   cached: 5290fd111968ff53
+  · Synthesised 1/2: This is the crop editor....
+  · reused 0 of 2 cached clip(s)
+
+$ # ...you tighten line 2 and run it again
+  · Synthesised 2/2: Pick a preset and it snaps to fit.
+  · reused 1 of 2 cached clip(s)
+```
+
+To hear a line before committing to a render, use `preview` — it synthesises
+just that one line and tells you how it sits in its slot:
+
+```
+$ directora preview demo.mp4 2 --script script.json
+  line 2  00:24-00:31
+  text    : Pick a preset and the frame snaps to fit it exactly.
+  voice   : en-GB-RyanNeural @ -8%
+  length  : 4.11s of audio in a 7.00s slot (~17 words fit)
+  audio  : ~/.config/directora/work/demo-1a2b3c/tts/fd04233f24701c5e.mp3
+```
+
+That is far cheaper than a full render when you are choosing between phrasings.
+
+---
+
+## ◈ Batch
+
+Docs teams re-record walkthroughs in batches. `batch` walks a folder and
+narrates everything it finds, matching `<stem>.json` scripts by filename:
+
+```bash
+# one script per video, named after it
+directora batch ~/Videos/walkthroughs --script-dir ~/Videos/scripts \
+             --out-dir ~/Videos/narrated
+```
+
+```
+  3 video(s) under /home/you/Videos/walkthroughs
+
+  [1/3] install.mp4
+      -> /home/you/Videos/narrated/install_voiced.mp4
+  ...
+  2/3 succeeded
+    ok   install.mp4: /home/you/Videos/narrated/install_voiced.mp4
+    ok   setup.mp4: /home/you/Videos/narrated/setup_voiced.mp4
+    FAIL broken.mp4: FAILED: ffprobe failed on broken.mp4: moov atom not found
+```
+
+A bad file does not stop the rest. The exit code is non-zero if **any** video
+failed, so it works as a CI gate.
 
 ---
 
@@ -230,7 +293,8 @@ Use `--strict` to fail instead of warn, which is what you want in a pipeline.
 ## ◈ The mix
 
 - **Video is stream-copied.** No re-encode, MD5-identical to the source.
-  Verified in tests.
+  There is a test that renders a clip and compares the video-stream MD5
+  against the original, so this claim cannot quietly rot.
 - **Two-pass `loudnorm`** to −16 LUFS / −1.5 dBTP.
 - **Original audio is ducked, not deleted** — side-chain compressed under the
   narration so clicks survive as texture. `--no-original` to drop it instead.
@@ -281,6 +345,7 @@ It installs to `~/.config/opencode/skills/directora` and
 
 `~/.config/directora/config.toml`, or `directora config --set key=value`.
 Every key also honours a `DIRECTORA_<KEY>` environment variable.
+The file is written `0600`, since it can hold an API key.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -318,6 +383,9 @@ directora/
 │   ├── script_gen.py       slot planning, pacing budgets, transcript cleanup
 │   └── script_io.py        agent script format: load / validate / template
 └── tts/engine.py           edge-tts synthesis, voice catalogue, rate matching
+
+.github/workflows/ci.yml    tests, lint, dependency resolve, skill validity
+skill/directora/SKILL.md    the workflow packaged as an agent skill
 ```
 
 ---
@@ -328,15 +396,31 @@ directora/
 .venv/bin/python -m pytest tests/
 ```
 
-24 tests: pacing maths, the agent script format (shot inheritance, explicit
+38 tests: pacing maths, the agent script format (shot inheritance, explicit
 times, bare lists, overlap resolution, unknown shots, voice overrides), session
-round-tripping, srt timing, config overrides, and refusal to invent narration
-without a script or key.
+round-tripping, srt timing, config overrides, refusal to invent narration
+without a script or key, the TTS content cache, Claude model-id selection, and
+a real ffmpeg render asserting the video stream is byte-identical.
 
 Several exist because they caught real bugs during the build — including a
 function-local import that shadowed an asyncio helper and made every line
 silently fail to synthesise, and `capacity_words` dividing by `fill_ratio`
 instead of multiplying it, which made every overrun check far too lenient.
+
+The suite deliberately needs only **numpy** and **pillow**; `edge-tts`,
+`faster-whisper` and `anthropic` are all imported lazily, so CI installs three
+packages and runs in about a second.
+
+### CI
+
+`.github/workflows/ci.yml` runs four jobs on every push:
+
+| job | what it guards |
+|---|---|
+| `test` | the suite on Python 3.10 (the declared floor) and 3.13 |
+| `lint` | `ruff check`, configured in `pyproject.toml` |
+| `deps` | that `requirements.txt` still resolves and every module imports |
+| `skill` | that the skill's front matter is valid and `install.sh` parses |
 
 ---
 

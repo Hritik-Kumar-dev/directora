@@ -127,6 +127,8 @@ script against it before rendering.
 - **Never write to the source video.** Always `-o`.
 - **Never skip the keyframes.** The tool cannot see; you can.
 - **Never skip `check`.** It is free and instant.
+- **Re-rendering is cheap** — clips are cached by content hash, so iterating
+  costs only the lines you actually changed. Do not ration attempts.
 - **Honour the user's brief.** If they described the intent, let it override
   what you would otherwise write.
 - **Do not overwrite the script file they gave you.** Write to `/tmp` unless
@@ -163,9 +165,37 @@ not rewrite from it.
 | `watch VIDEO` | analyse; `--format human\|json\|compact`, `--template FILE` |
 | `template VIDEO` | script skeleton; `-o FILE` |
 | `check VIDEO --script F` | validate timing only; `--strict` |
-| `narrate VIDEO` | the whole job; `--script F`, `-o OUT`, `--voice`, `--rate`, `--language`, `--no-original`, `--no-srt` |
+| `narrate VIDEO` | the whole job; `--script F`, `-o OUT`, `--voice`, `--rate`, `--language`, `--no-original`, `--no-srt`, `--no-cache` |
+| `preview VIDEO N --script F` | speak line N alone; report its real length |
+| `batch DIR --script-dir D` | narrate every video in a folder |
 | `voices` | list voices; `--locale CODE` |
 | `config` | show settings; `--set key=value` |
+
+## Iterating is cheap
+
+Narration clips are cached by a hash of their text, voice, rate and pitch, so
+re-running after an edit only re-synthesises the lines that changed. Iterate
+freely.
+
+To hear one line before committing to a full render:
+
+```bash
+directora preview VIDEO.mp4 2 --script /tmp/narration.json
+```
+
+This speaks only line 2 and reports how its audio sits in its slot. Use it when
+you are choosing between phrasings and want the ground truth rather than a
+word-count estimate.
+
+For several videos, write one script per video named after it and run:
+
+```bash
+directora batch ~/Videos/walkthroughs --script-dir /tmp/scripts \
+             --out-dir ~/Videos/narrated
+```
+
+A corrupt file does not stop the rest; the exit code is non-zero if any video
+failed.
 
 ## Troubleshooting
 
