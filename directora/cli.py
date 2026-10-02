@@ -23,6 +23,7 @@ import sys
 from pathlib import Path
 
 from .config import CONFIG_FILE, SESSION_DIR, Settings, ensure_dirs
+from .media import mix
 from .models import Session
 from .nlp import script_gen, script_io
 from .pipeline import Pipeline, find_videos, session_slug
@@ -187,12 +188,14 @@ def cmd_narrate(args) -> int:
     out = Path(args.out).expanduser() if args.out else None
     tick = _ticker(args.quiet)
 
+    cache = getattr(args, "cache", True)
     if args.script:
         tick(f"using agent script {Path(args.script).name}")
         session = pipe.narrate(video, out, tick,
-                              script_path=Path(args.script).expanduser())
+                               script_path=Path(args.script).expanduser(),
+                               cache=cache)
     else:
-        session = pipe.narrate(video, out, tick)
+        session = pipe.narrate(video, out, tick, cache=cache)
 
     if session.has_speech and not session.transcript_reliable:
         print("  note: the source audio did not transcribe confidently "
@@ -206,8 +209,7 @@ def cmd_narrate(args) -> int:
     _save(session)
     _summary(session, s, session.output, srt if not args.no_srt else None)
 
-    from .media.mix import overruns
-    over = overruns(session.script.lines)
+    over = mix.overruns(session.script.lines)
     if over:
         print(f"  {len(over)} line(s) overrun their slot:")
         for l in over:
@@ -216,6 +218,134 @@ def cmd_narrate(args) -> int:
                   f"{int((l.clip_dur - l.duration) / 60 * s.target_wpm) + 1} word(s)")
         print()
     return 0
+
+
+def cmd_preview(args) -> int:
+    """Speak a single line so you can hear it before rendering anything.
+
+    Takes the same ``--script`` path as ``narrate`` but only synthesises the
+    one line, which costs a fraction of a full run.
+    """
+    s = _settings(args)
+    video = Path(args.video).expanduser()
+    session_file = SESSION_DIR / f"{session_slug(video)}.json"
+    tick = _ticker(args.quiet)
+
+    if session_file.exists():
+        session = Session.load(session_file)
+    else:
+        session = Pipeline(s).watch(video, tick)
+
+    pipe = Pipeline(s)
+    try:
+        if args.script:
+            pipe.apply_script(session, Path(args.script).expanduser(), tick)
+        else:
+            pipe.write_script(session, tick)
+    except script_io.ScriptError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    line = next((l for l in session.script.lines if l.index == args.line), None)
+    if line is None:
+        print(f"error: no line {args.line} (script has "
+              f"{len(session.script.lines)} line(s), numbered from 0)",
+              file=sys.stderr)
+        return 1
+    if not line.text.strip():
+        print(f"error: line {args.line} has no text yet — fill it in first",
+              file=sys.stderr)
+        return 1
+
+    got = pipe.preview_line(session, args.line)
+    if got is None:
+        print(f"error: could not render line {args.line}", file=sys.stderr)
+        return 1
+    path, dur = got
+
+    cap = script_gen.capacity_words(line.duration, s)
+    print()
+    print(f"  line {args.line}  {_human(line.start)}-{_human(line.end)}")
+    print(f"  text    : {line.text}")
+    print(f"  voice   : {s.voice} @ {s.rate}")
+    print(f"  length  : {dur:.2f}s of audio in a {line.duration:.2f}s slot "
+          f"(~{int(cap)} words fit)")
+    if dur > line.duration + 0.05:
+        print(f"  warning : overruns by {dur - line.duration:.2f}s — it will "
+              f"bleed into the next shot")
+    print(f"  audio   : {path}")
+    print()
+    return 0
+
+
+def cmd_batch(args) -> int:
+    """Narrate every video in a folder, one after another.
+
+    Each video gets its own ``<stem>_voiced.mp4``. A failure on one file does
+    not stop the rest; the exit code is non-zero if any video failed, so a CI
+    job can gate on it.
+    """
+    s = _settings(args)
+    root = Path(args.dir).expanduser()
+    videos = find_videos(root, recursive=not args.no_recursive)
+    if not videos:
+        print(f"no video files found under {root}", file=sys.stderr)
+        return 1
+    if args.limit:
+        videos = videos[:args.limit]
+
+    if not args.script_dir and not (s.vision_backend == "claude" or s.claude_key()):
+        print("error: batch needs a way to write the narration.\n"
+              "\n"
+              "  Either set ANTHROPIC_API_KEY with --backend claude,\n"
+              "  or pass --script-dir DIR holding one <stem>.json per video\n"
+              "  (see:  directora watch VIDEO --template script.json)",
+              file=sys.stderr)
+        return 2
+
+    outdir = Path(args.out_dir).expanduser() if args.out_dir else None
+    if outdir:
+        outdir.mkdir(parents=True, exist_ok=True)
+    cache = getattr(args, "cache", True)
+
+    print(f"\n  {len(videos)} video(s) under {root}\n", file=sys.stderr)
+    results: list[tuple[Path, str]] = []
+
+    for i, video in enumerate(videos, 1):
+        head = f"[{i}/{len(videos)}] {video.name}"
+        print(f"  {head}", file=sys.stderr)
+
+        script_path = None
+        if args.script_dir:
+            candidate = Path(args.script_dir).expanduser() / f"{video.stem}.json"
+            if candidate.exists():
+                script_path = candidate
+
+        out = outdir / f"{video.stem}_voiced{video.suffix}" if outdir else None
+        tick = _ticker(args.quiet)
+
+        try:
+            session = Pipeline(s).narrate(video, out, tick,
+                                          script_path=script_path,
+                                          cache=cache)
+            _save(session)
+            over = mix.overruns(session.script.lines)
+            note = (f"{session.output}  ({len(over)} line(s) overrun)"
+                    if over else str(session.output))
+            results.append((video, note))
+            print(f"      -> {note}", file=sys.stderr)
+        except Exception as exc:                                # noqa: BLE001
+            results.append((video, f"FAILED: {exc}"))
+            print(f"      !! {exc}", file=sys.stderr)
+
+    failed = [r for r in results if r[1].startswith("FAILED")]
+    print()
+    print(f"  {len(results) - len(failed)}/{len(results)} succeeded")
+    for video, note in results:
+        mark = "ok  " if not note.startswith("FAILED") else "FAIL"
+        print(f"    {mark} {video.name}: {note}")
+    print()
+    return 1 if failed else 0
 
 
 def cmd_template(args) -> int:
@@ -378,6 +508,11 @@ def _write_config(s: Settings) -> None:
     lines.append("")
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_FILE.write_text("\n".join(lines), encoding="utf-8")
+    # the file can hold an API key, so keep it owner-only
+    try:
+        CONFIG_FILE.chmod(0o600)
+    except OSError:
+        pass
 
 
 # --------------------------------------------------------------------------- #
@@ -452,7 +587,32 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("--strict", action="store_true",
                    help="fail instead of warning on timing problems")
     n.add_argument("--no-srt", action="store_true")
+    n.add_argument("--no-cache", dest="cache", action="store_false",
+                   help="re-synthesise every line instead of reusing clips")
     n.set_defaults(func=cmd_narrate)
+
+    pv = sub.add_parser("preview", parents=[common],
+                        help="speak a single line and report its length")
+    pv.add_argument("video")
+    pv.add_argument("line", type=int,
+                    help="line number, counted from 0")
+    pv.add_argument("--script", metavar="FILE",
+                    help="agent-written script (optional if one is cached)")
+    pv.set_defaults(func=cmd_preview)
+
+    b = sub.add_parser("batch", parents=[common],
+                       help="narrate every video in a folder")
+    b.add_argument("dir")
+    b.add_argument("--script-dir", metavar="DIR",
+                   help="folder of <stem>.json scripts, one per video")
+    b.add_argument("--out-dir", metavar="DIR",
+                   help="write outputs here instead of beside each video")
+    b.add_argument("--limit", type=int, help="stop after N videos")
+    b.add_argument("--no-recursive", action="store_true",
+                   help="do not descend into subfolders")
+    b.add_argument("--no-cache", dest="cache", action="store_false",
+                   help="re-synthesise every line instead of reusing clips")
+    b.set_defaults(func=cmd_batch)
 
     a = sub.add_parser("analyze", parents=[common],
                        help="alias for watch")
