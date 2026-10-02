@@ -453,16 +453,21 @@ packages and runs in about a second.
 
 ### CI
 
-`.github/workflows/ci.yml` runs four jobs on every push:
+`.github/workflows/ci.yml` runs five jobs on every push:
 
 | job | what it guards |
 |---|---|
 | `test` | the suite on Python 3.10 (the declared floor) and 3.13 |
 | `lint` | `ruff check`, configured in `pyproject.toml` |
 | `deps` | that `requirements.txt` still resolves and every module imports |
+| `installer` | the one-line installer, end to end into a throwaway `$HOME` |
 | `skill` | that the skill's front matter is valid and `install.sh` parses |
 
 ---
+
+## ◈ Licence
+
+MIT — see [`LICENSE`](LICENSE).
 
 ## ◈ Known limits
 
