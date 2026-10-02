@@ -28,6 +28,9 @@ dependencies = [
     "edge-tts>=7.0",
     "numpy>=1.26",
     "pillow>=10.0",
+    # tomllib is stdlib only from 3.11 but we support 3.10, so pull the
+    # backport rather than relying on the hand-rolled fallback in config.py
+    "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
