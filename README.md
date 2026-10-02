@@ -56,32 +56,68 @@ read the manifest, open the keyframes it points at, write the lines, let
 
 ## ◈ Install
 
-Requires **ffmpeg** on your `PATH` (`sudo apt install ffmpeg`).
+```bash
+curl -fsSL https://raw.githubusercontent.com/Hritik-Kumar-dev/directora/main/install.sh | bash
+```
+
+That is the whole thing. It installs the `directora` CLI into
+`~/.local/share/directora`, puts a launcher in `~/.local/bin`, and drops the
+agent skill into `~/.config/opencode/skills` and `~/.claude/skills`.
+
+**Requirements:** Python 3.10+ and **ffmpeg** on your `PATH`. If ffmpeg is
+missing the installer tells you the exact command for your platform and stops,
+rather than quietly failing later. It never runs `sudo` for you.
+
+Then just ask your agent:
+
+> *voice over ~/Videos/demo.mp4, and emphasise the batch export step*
+
+<details>
+<summary>Options, extras, and uninstall</summary>
+
+```bash
+# speech-to-text: transcribe narration already in the recording (~200MB)
+curl -fsSL <url>/install.sh | bash -s -- --asr
+
+# the Anthropic SDK, so an API can write the narration from the keyframes
+curl -fsSL <url>/install.sh | bash -s -- --claude
+
+# both
+curl -fsSL <url>/install.sh | bash -s -- --full
+
+# pin a version, or target one agent only
+curl -fsSL <url>/install.sh | bash -s -- --version v0.2.0
+curl -fsSL <url>/install.sh | bash -s -- --agent claude
+
+# remove everything
+curl -fsSL <url>/install.sh | bash -s -- --uninstall
+```
+
+`--help` lists the rest, including `--from DIR` for installing from a local
+checkout and `--prefix` / `--bin-dir` to relocate things.
+
+**Why the extras are opt-in.** The core is deliberately small — `numpy`,
+`pillow`, `edge-tts`. Speech-to-text pulls `faster-whisper` and
+`ctranslate2`, which is a few hundred megabytes, and a curl one-liner should
+not surprise anyone with that. Without `--asr`, videos that already have
+narration are simply narrated over without transcribing what was said; the
+run still works.
+
+**Reproducibility.** With no argument the installer takes the newest GitHub
+release, falling back to `main` if none is published. Pin with `--version` for
+a fixed install.
+
+</details>
+
+### From a clone instead
+
+For hacking on it, or if you would rather read the code first:
 
 ```bash
 git clone git@github.com:Hritik-Kumar-dev/directora.git
 cd directora
 ./run.sh narrate ~/Videos/demo.mp4          # builds .venv on first run
-```
-
-Nothing is installed system-wide. Python 3.10+.
-
-### Making `directora` available everywhere
-
-`./run.sh` works from inside the project directory. To call it from anywhere,
-put a launcher on your `PATH` — `~/.local/bin` is already on `PATH` in most
-setups:
-
-```bash
-mkdir -p ~/.local/bin
-cat > ~/.local/bin/directora <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-PROJECT="$HOME/work/projects/directora"
-[ -x "$PROJECT/run.sh" ] || { echo "directora: project missing at $PROJECT" >&2; exit 1; }
-exec "$PROJECT/run.sh" "$@"
-EOF
-chmod +x ~/.local/bin/directora
+./skill/install.sh                          # install the agent skill only
 ```
 
 `run.sh` creates the virtualenv on first run and re-syncs dependencies whenever
@@ -266,6 +302,10 @@ You keep your wording and meaning and get a clean baseline. The detected
 speaking rate is reported and used to suggest a matching `edge-tts` rate, so
 the new voiceover sits near your natural pace.
 
+This needs the `asr` extra (`pip install -e '.[asr]'`, or `--asr` on the
+installer). Without it the pipeline says so and carries on, ignoring whatever
+was already spoken — so a silent recording still narrates fine.
+
 ---
 
 ## ◈ Timing that actually constrains you
@@ -329,15 +369,15 @@ The skill encodes the lessons that took the most iterations to learn:
 - **Write what the software does**, not what the frame looks like.
 - **Low-confidence transcription means film or music**, not narration to rewrite.
 
-Install path for a fresh machine:
+Install it the same way as the CLI — the one-liner covers both:
 
 ```bash
-git clone https://github.com/Hritik-Kumar-dev/directora.git
-cd directora && ./skill/install.sh
+curl -fsSL https://raw.githubusercontent.com/Hritik-Kumar-dev/directora/main/install.sh | bash
 ```
 
 It installs to `~/.config/opencode/skills/directora` and
-`~/.claude/skills/directora`, and prints manual instructions if neither exists.
+`~/.claude/skills/directora`, choosing automatically based on which agents it
+finds. To install the skill on its own, from a clone: `./skill/install.sh`.
 
 ---
 

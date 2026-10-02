@@ -19,27 +19,35 @@ watching the keyframes, the output will be generic and wrong.
 ## Requirements
 
 - `ffmpeg` and `ffprobe` on `PATH`
+- Python 3.10+
 - The `directora` CLI
 
 ## Install / bootstrap
 
-If `directora` is not on `PATH`:
+If `directora: command not found`, install it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Hritik-Kumar-dev/directora/main/install.sh | bash
+```
+
+That installs the CLI and this skill, and puts a launcher in `~/.local/bin`.
+It stops with a clear message if ffmpeg is missing rather than failing later,
+and never runs `sudo` on the user's behalf. If `~/.local/bin` is not on their
+`PATH`, tell them to add it — do not try to work around it.
+
+Useful extras, worth suggesting once the basics work:
+
+- `--asr` — transcribe narration already in the recording (~200MB). Without it
+  a recording that already has a voice gets narrated over silently.
+- `--claude` — the Anthropic SDK, so an API can write the narration instead.
+
+If the user would rather not pipe into a shell, or is on a machine without
+`curl`, offer the clone path instead:
 
 ```bash
 git clone https://github.com/Hritik-Kumar-dev/directora.git
 ~/work/projects/directora/run.sh config      # builds the venv on first run
 ```
-
-If `directora: command not found`, install a launcher:
-
-```bash
-mkdir -p ~/.local/bin
-printf '#!/usr/bin/env bash\nexec "$HOME/work/projects/directora/run.sh" "$@"\n' \
-  > ~/.local/bin/directora
-chmod +x ~/.local/bin/directora
-```
-
-A `run.sh` at the project root always works, even without the launcher.
 
 ---
 
@@ -199,7 +207,8 @@ failed.
 
 ## Troubleshooting
 
-**`directora: command not found`** — install the `~/.local/bin` launcher above.
+**`directora: command not found`** — run the installer at the top of this
+file, and check `~/.local/bin` is on `PATH`.
 
 **`narrate` refuses with "nothing can write the narration"** — there is no
 script and no vision backend. Write a script and pass `--script`. That is the
