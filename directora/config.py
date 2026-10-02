@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import os
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import tomllib
 
 APP_NAME = "directora"
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / APP_NAME
@@ -55,7 +56,7 @@ class Settings:
 
     # ------------------------------------------------------------------ #
     @classmethod
-    def load(cls) -> "Settings":
+    def load(cls) -> Settings:
         s = cls()
         if CONFIG_FILE.exists():
             try:
@@ -93,6 +94,11 @@ class Settings:
         for k, v in self.extra.items():
             lines.append(f"# [extra] {k} = {v}")
         CONFIG_FILE.write_text("\n".join(lines), encoding="utf-8")
+        # the file can hold an API key, so keep it owner-only
+        try:
+            CONFIG_FILE.chmod(0o600)
+        except OSError:
+            pass
 
     # ------------------------------------------------------------------ #
     def claude_key(self) -> str | None:
