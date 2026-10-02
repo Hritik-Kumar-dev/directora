@@ -470,3 +470,48 @@ def test_config_file_is_not_world_readable(tmp_path, monkeypatch):
     cli._write_config(s)
     mode = stat.S_IMODE((tmp_path / "config.toml").stat().st_mode)
     assert mode == 0o600, f"expected 0600, got {oct(mode)}"
+
+
+# --------------------------------------------------------------------------- #
+# config type coercion
+# --------------------------------------------------------------------------- #
+def test_coerce_matches_the_declared_type():
+    from directora.config import coerce
+    assert coerce(145, "120") == 120 and isinstance(coerce(145, "120"), int)
+    assert coerce(145, 120.0) == 120
+    assert coerce(-16.0, "-14") == -14.0
+    assert coerce(-16.0, 14) == 14.0
+    assert coerce(True, "false") is False
+    assert coerce(True, "yes") is True
+    assert coerce("en-GB-RyanNeural", "en-US-GuyNeural") == "en-US-GuyNeural"
+    # nonsense is rejected rather than adopted
+    assert coerce(145, "not a number") is None
+    assert coerce(145, True) is None
+    assert coerce(True, 3) is None
+
+
+def test_load_ignores_a_mistyped_config_value(tmp_path, monkeypatch):
+    """A quoted number must not become a string and explode downstream."""
+    from directora import config as cfg
+    monkeypatch.setattr(cfg, "CONFIG_FILE", tmp_path / "config.toml")
+    (tmp_path / "config.toml").write_text(
+        'target_wpm = "145"\n'
+        'keep_original_audio = "false"\n'
+        'target_lufs = "-14.5"\n'
+        'voice = "en-US-GuyNeural"\n',
+        encoding="utf-8",
+    )
+    s = cfg.Settings.load()
+    assert s.target_wpm == 145 and isinstance(s.target_wpm, int)
+    assert s.keep_original_audio is False
+    assert s.target_lufs == -14.5
+    assert s.voice == "en-US-GuyNeural"
+
+
+def test_load_keeps_defaults_for_an_unparseable_value(tmp_path, monkeypatch):
+    from directora import config as cfg
+    monkeypatch.setattr(cfg, "CONFIG_FILE", tmp_path / "config.toml")
+    (tmp_path / "config.toml").write_text('fill_ratio = "quite high"\n',
+                                          encoding="utf-8")
+    s = cfg.Settings.load()
+    assert s.fill_ratio == 0.82

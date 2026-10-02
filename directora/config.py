@@ -18,6 +18,46 @@ WORK_DIR = CONFIG_DIR / "work"
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 
 
+def coerce(current: object, raw: object) -> object | None:
+    """Convert ``raw`` to the type of the current setting.
+
+    Returns ``None`` when the value cannot sensibly be converted, so callers
+    can keep the default rather than adopt something that will fail later.
+    """
+    if isinstance(current, bool):
+        if isinstance(raw, bool):
+            return raw
+        if isinstance(raw, str):
+            return raw.strip().lower() in ("1", "true", "yes", "on")
+        return None
+    if isinstance(current, int):
+        if isinstance(raw, bool):
+            return None
+        if isinstance(raw, int):
+            return raw
+        if isinstance(raw, float) and raw.is_integer():
+            return int(raw)
+        if isinstance(raw, str):
+            try:
+                return int(raw.strip())
+            except ValueError:
+                return None
+        return None
+    if isinstance(current, float):
+        if isinstance(raw, bool):
+            return None
+        if isinstance(raw, (int, float)):
+            return float(raw)
+        if isinstance(raw, str):
+            try:
+                return float(raw.strip())
+            except ValueError:
+                return None
+        return None
+    # strings, paths and anything else pass through untouched
+    return raw
+
+
 @dataclass
 class Settings:
     # --- vision ---
@@ -68,7 +108,14 @@ class Settings:
                 return s
             for k, v in data.items():
                 if hasattr(s, k) and not isinstance(v, dict):
-                    setattr(s, k, v)
+                    # A hand-edited config can carry the wrong type -- writing
+                    # target_wpm = "145" quotes the value, and adopting it
+                    # verbatim used to surface much later as a baffling
+                    # "can't multiply sequence by non-int" from deep in the
+                    # pipeline. Fall back to the default instead.
+                    coerced = coerce(getattr(s, k), v)
+                    if coerced is not None:
+                        setattr(s, k, coerced)
                 else:
                     s.extra[k] = v
         # environment overrides -- useful for CI / headless runs
@@ -76,15 +123,9 @@ class Settings:
             env = os.environ.get(f"DIRECTORA_{k.upper()}")
             if env is None:
                 continue
-            cur = getattr(s, k)
-            if isinstance(cur, bool):
-                setattr(s, k, env.lower() in ("1", "true", "yes", "on"))
-            elif isinstance(cur, int) and not isinstance(cur, bool):
-                setattr(s, k, int(env))
-            elif isinstance(cur, float):
-                setattr(s, k, float(env))
-            else:
-                setattr(s, k, env)
+            coerced = coerce(getattr(s, k), env)
+            if coerced is not None:
+                setattr(s, k, coerced)
         return s
 
     def save(self) -> None:
